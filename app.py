@@ -199,6 +199,7 @@ def process_attendance_data(df, id_number):
 
 
 def main():
+    st.set_page_config(page_title="Reportify")
     st.title("Student Attendance Report Generator")
     # Add Twilio credentials in sidebar
     st.sidebar.header("SMS Configuration")
