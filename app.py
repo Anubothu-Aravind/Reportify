@@ -225,7 +225,7 @@ def main():
 
                 if st.button("Send WhatsApp Messages"):
                     # Initialize Chrome WebDriver
-                    chrome_options = Options()
+                    options = Options()
                     options.add_argument('--disable-gpu')
                     options.add_argument('--no-sandbox')
                     options.add_argument('--disable-setuid-sandbox')
@@ -233,7 +233,7 @@ def main():
                     options.add_argument("--start-maximized")
                     options.add_argument("--window-size=1920,1080")
                     service = Service(ChromeDriverManager().install())
-                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    driver = webdriver.Chrome(service=service, options=options)
                     driver.set_page_load_timeout(30)  # Adjust time as needed
                     driver.get("https://web.whatsapp.com")
                     
