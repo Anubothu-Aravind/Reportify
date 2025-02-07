@@ -4,6 +4,7 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -224,7 +225,15 @@ def main():
 
                 if st.button("Send WhatsApp Messages"):
                     # Initialize Chrome WebDriver
-                    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+                    chrome_options = Options()
+                    chrome_options.add_argument("--headless")  # Run in headless mode
+                    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model
+                    chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource issues
+                    chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
+                    chrome_options.add_argument("--remote-debugging-port=9222")  # Debugging
+                    service = Service(ChromeDriverManager().install())
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+
                     driver.get("https://web.whatsapp.com")
                     st.info("Scan the QR code and wait for login...")
                     time.sleep(LOGIN_TIME)
