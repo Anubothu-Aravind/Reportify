@@ -1,27 +1,29 @@
 import streamlit as st
 import pandas as pd
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
 import tempfile
 from fpdf import FPDF
 import os
 import shutil
 import zipfile
 import io
-from twilio.rest import Client
+import csv
 
-def send_sms(phone_number, message, twilio_account_sid, twilio_auth_token, twilio_phone_number):
-    """Send SMS using Twilio"""
-    try:
-        client = Client(twilio_account_sid, twilio_auth_token)
-        message = client.messages.create(
-            body=message,
-            from_=twilio_phone_number,
-            to=phone_number
-        )
-        return True
-    except Exception as e:
-        st.error(f"Error sending SMS: {str(e)}")
-        return False
+class CustomPDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        self.set_auto_page_break(auto=True, margin=15)
 
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', 0, 0, 'C')
 
 def get_report_text(student_data):
     """Generate report text for SMS"""
@@ -48,24 +50,31 @@ def get_report_text(student_data):
 
     return text
 
-
 def generate_sample_csv():
     """Generate a sample CSV file"""
     sample_data = """S.No,NAME,ID NUMBER,COURSE CODE,COURSE NAME,COMPONENT,ATTENDANCE,PHONE NUMBER
+1,Anubothu Aravind,2200080137,22AD3206A,DATA SCIENCE AND VISUALIZATION,L,85%,8374005347
 """
     return io.BytesIO(sample_data.encode())
 
+def generate_sms_csv(student_data_list):
+    """Generate CSV file with phone numbers and messages"""
+    csv_data = []
+    for i, student_data in enumerate(student_data_list, 1):
+        message = get_report_text(student_data)
+        csv_data.append({
+            'S.No': i,
+            'Phone Number': student_data['phone'],
+            'Message': message
+        })
 
-class CustomPDF(FPDF):
-    def __init__(self):
-        super().__init__()
-        self.set_auto_page_break(auto=True, margin=15)
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=['S.No', 'Phone Number', 'Message'])
+    writer.writeheader()
+    writer.writerows(csv_data)
 
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', 0, 0, 'C')
-
+    return output.getvalue()
 
 def create_text_report(student_data, filename):
     """Create text report with both English and Telugu summaries"""
@@ -102,7 +111,6 @@ def create_text_report(student_data, filename):
                 f.write(f"- {item['subject']} ({item['component']}): {item['attendance']}%\n")
         else:
             f.write("అన్ని సబ్జెక్టులలో మంచి హాజరు!\n")
-
 
 def create_pdf_report(student_data):
     """Create PDF report in English"""
@@ -166,7 +174,6 @@ def create_pdf_report(student_data):
     pdf.output(temp_pdf.name)
     return temp_pdf.name
 
-
 def process_attendance_data(df, id_number):
     """Process attendance data for a specific ID number"""
     student_data = df[df['ID NUMBER'] == id_number]
@@ -199,14 +206,57 @@ def process_attendance_data(df, id_number):
 
 
 def main():
-    st.set_page_config(page_title="Reportify")
+    # WhatsApp Web Configuration
+    LOGIN_TIME = 30  # Time for login (in seconds)
+    NEW_MSG_TIME = 8  # Time to load new message screen
+    SEND_MSG_TIME = 5  # Time before sending next message
+    COUNTRY_CODE = "91"  # Change as per your country
     st.title("Student Attendance Report Generator")
-    # Add Twilio credentials in sidebar
-    st.sidebar.header("SMS Configuration")
-    twilio_account_sid = st.sidebar.text_input("Twilio Account SID", type="password")
-    twilio_auth_token = st.sidebar.text_input("Twilio Auth Token", type="password")
-    twilio_phone_number = st.sidebar.text_input("Twilio Phone Number")
+    with st.sidebar:
+        st.header("WhatsApp Web Integration")
+        uploaded_file = st.file_uploader("Upload CSV (Phone Number, Message)", type=["csv"])
 
+        if uploaded_file is not None:
+            df = pd.read_csv(uploaded_file)
+
+            if "Phone Number" in df.columns and "Message" in df.columns:
+                st.success("CSV uploaded successfully! Ready to send messages.")
+
+                if st.button("Send WhatsApp Messages"):
+                    # Initialize Chrome WebDriver
+                    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+                    driver.get("https://web.whatsapp.com")
+                    st.info("Scan the QR code and wait for login...")
+                    time.sleep(LOGIN_TIME)
+
+                    for index, row in df.iterrows():
+                        phone_number = str(row["Phone Number"]).strip()
+                        message = str(row["Message"]).strip()
+
+                        whatsapp_url = f"https://web.whatsapp.com/send/?phone={COUNTRY_CODE}{phone_number}"
+                        driver.get(whatsapp_url)
+                        time.sleep(NEW_MSG_TIME)
+
+                        try:
+                            # Type and Send Message
+                            actions = ActionChains(driver)
+                            for line in message.split('\n'):
+                                actions.send_keys(line)
+                                actions.key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT)
+                            actions.send_keys(Keys.ENTER)
+                            actions.perform()
+
+                            st.success(f"✅ Message sent to {phone_number}")
+                            time.sleep(SEND_MSG_TIME)
+
+                        except Exception as e:
+                            st.error(f"❌ Failed to send message to {phone_number}: {str(e)}")
+
+                    driver.quit()
+                    st.success("All messages sent successfully! ✅")
+
+            else:
+                st.error("Invalid CSV format! Ensure it has 'Phone Number' and 'Message' columns.")
     st.markdown("""
         **Instructions:**
         - Please upload a CSV file in the following format:
@@ -229,12 +279,15 @@ def main():
             id_numbers = df['ID NUMBER'].unique()
             pdf_files = []
             text_files = []
-            all_student_data = {}
+            student_data_list = []  # Store all student data for SMS CSV generation
 
             for selected_id in id_numbers:
                 student_data = process_attendance_data(df, selected_id)
 
                 if student_data:
+                    # Add to student data list for SMS CSV
+                    student_data_list.append(student_data)
+
                     # Create PDF report
                     pdf_file = create_pdf_report(student_data)
                     pdf_filename = f"attendance_report_{selected_id}.pdf"
@@ -261,13 +314,29 @@ def main():
                         zipf.write(text_file, os.path.basename(text_file))
                         os.unlink(text_file)
 
+                # Generate SMS CSV data
+                sms_csv_data = generate_sms_csv(student_data_list)
+
+                # Create two columns for download buttons
+                col1, col2 = st.columns(2)
+
                 # Provide download link for ZIP file
                 with open(zip_filename, "rb") as zipf:
+                    with col1:
+                        st.download_button(
+                            label="Download All Reports (PDF and Text) as ZIP",
+                            data=zipf,
+                            file_name="attendance_reports.zip",
+                            mime="application/zip"
+                        )
+
+                # Provide download link for SMS CSV
+                with col2:
                     st.download_button(
-                        label="Download All Reports (PDF and Text) as ZIP",
-                        data=zipf,
-                        file_name="attendance_reports.zip",
-                        mime="application/zip"
+                        label="Download SMS Data (CSV)",
+                        data=sms_csv_data,
+                        file_name="sms_data.csv",
+                        mime="text/csv"
                     )
 
                 # Cleanup ZIP file
