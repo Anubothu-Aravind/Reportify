@@ -233,8 +233,9 @@ def main():
                     chrome_options.add_argument("--remote-debugging-port=9222")  # Debugging
                     service = Service(ChromeDriverManager().install())
                     driver = webdriver.Chrome(service=service, options=chrome_options)
-
+                    driver.set_page_load_timeout(30)  # Adjust time as needed
                     driver.get("https://web.whatsapp.com")
+                    
                     st.info("Scan the QR code and wait for login...")
                     time.sleep(LOGIN_TIME)
 
